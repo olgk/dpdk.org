@@ -107,7 +107,6 @@ check_cqe64(volatile struct mlx5_cqe64 *cqe,
 	return 0;
 }
 
-#if MLX5_PMD_MAX_INLINE == 0
 /**
  * Manage TX completions.
  *
@@ -123,100 +122,27 @@ static void
 txq_complete(struct ftxq *txq)
 {
 	const unsigned int elts_n = txq->elts_n;
-	const unsigned int cqe_cnt = txq->cqe_cnt;
-	const unsigned int cqe_n = cqe_cnt + 1;
-	uint16_t elts_free = txq->elts_tail;
-	uint16_t elts_tail;
-	uint16_t cq_ci = txq->cq_ci;
-	unsigned int wqe_ci = (unsigned int)-1;
-	int ret = 0;
-
-	while (ret == 0) {
-		unsigned int idx = cq_ci & cqe_cnt;
-		volatile struct mlx5_cqe64 *cqe = &(*txq->cqes)[idx];
-
-		ret = check_cqe64(cqe, cqe_n, cq_ci);
-		if (ret == 1)
-			break;
-#ifndef NDEBUG
-		if (MLX5_CQE_FORMAT(cqe->op_own) == MLX5_COMPRESSED)
-			rte_panic("Process a CQE compressed");
-#endif /* NDEBUG */
-		wqe_ci = ntohs(cqe->wqe_counter);
-		++cq_ci;
-	}
-	if (unlikely(wqe_ci == (unsigned int)-1))
-		return;
-	/* Free buffers. */
-	elts_tail = wqe_ci & (elts_n - 1);
-	while (elts_free != elts_tail) {
-		struct rte_mbuf *elt = (*txq->elts)[elts_free];
-		unsigned int elts_free_next =
-			(elts_free + 1) & (elts_n - 1);
-		struct rte_mbuf *elt_next = (*txq->elts)[elts_free_next];
-
-		(*txq->elts)[elts_free] = NULL;
-		RTE_MBUF_PREFETCH_TO_FREE(elt_next);
-		/* Faster than rte_pktmbuf_free(). */
-		do {
-			struct rte_mbuf *next = NEXT(elt);
-
-			rte_pktmbuf_free_seg(elt);
-			elt = next;
-		} while (elt != NULL);
-		elts_free = elts_free_next;
-	}
-	txq->cq_ci = cq_ci;
-	txq->elts_tail = elts_tail;
-	/* Update the consumer index. */
-	rte_wmb();
-	*txq->cq_db = htonl(txq->cq_ci);
-}
-
-#else /* MLX5_PMD_MAX_INLINE == 0 */
-
-/**
- * Manage TX completions.
- *
- * When sending a burst, mlx5_tx_burst() posts several WRs.
- * To improve performance, a completion event is only required once every
- * MLX5_PMD_TX_PER_COMP_REQ sends. Doing so discards completion information
- * for other WRs, but this information would not be used anyway.
- *
- * @param txq
- *   Pointer to TX queue structure.
- */
-static void
-txq_complete(struct ftxq *txq)
-{
-	const unsigned int elts_n = txq->elts_n;
-	const unsigned int cqe_cnt = txq->cqe_cnt;
-	const unsigned int cqe_n = cqe_cnt + 1;
 	uint16_t elts_free = txq->elts_tail;
 	uint16_t elts_tail = txq->elts_tail;
 	uint16_t cq_ci = txq->cq_ci;
-	unsigned int npolled = 0;
-	int ret = 0;
+	int n;
 
-	while (ret == 0) {
-		unsigned int idx = cq_ci & cqe_cnt;
+	for (n = 0; (n != MLX5_TX_CQ_RING_SIZE); ++n) {
+		unsigned int idx = cq_ci & (MLX5_TX_CQ_RING_SIZE - 1);
 		volatile struct mlx5_cqe64 *cqe = &(*txq->cqes)[idx];
 
-		ret = check_cqe64(cqe, cqe_n, cq_ci);
-		if (ret == 1)
+		if (check_cqe64(cqe, MLX5_TX_CQ_RING_SIZE, cq_ci) == 1)
 			break;
-
 #ifndef NDEBUG
 		if (MLX5_CQE_FORMAT(cqe->op_own) == MLX5_COMPRESSED)
 			rte_panic("Process a CQE compressed");
 #endif /* NDEBUG */
-		npolled++;
 		++cq_ci;
 	}
-	if (unlikely(npolled == 0))
+	if (unlikely(n == 0))
 		return;
 	/* Free buffers. */
-	elts_tail += npolled * txq->elts_comp_cd_init;
+	elts_tail = txq->mbuf_cqe_i;
 	if (elts_tail >= elts_n)
 		elts_tail -= elts_n;
 	while (elts_free != elts_tail) {
@@ -236,13 +162,13 @@ txq_complete(struct ftxq *txq)
 		} while (elt != NULL);
 		elts_free = elts_free_next;
 	}
+	txq->mbuf_cqe_n = 0;
 	txq->cq_ci = cq_ci;
 	txq->elts_tail = elts_tail;
 	/* Update the consumer index. */
 	rte_wmb();
 	*txq->cq_db = htonl(txq->cq_ci);
 }
-#endif /* MLX5_PMD_MAX_INLINE == 0 */
 
 /**
  * Get Memory Pool (MP) from mbuf. If mbuf is indirect, the pool from which
@@ -392,6 +318,7 @@ mlx5_wqe_write(struct ftxq *txq, volatile struct mlx5_wqe64 *wqe,
 
 	wqe->ctrl.data[0] = htonl((txq->wqe_ci << 8) | MLX5_OPCODE_SEND);
 	wqe->ctrl.data[1] = htonl(txq->qp_num_8s | 4);
+	wqe->ctrl.data[2] = 0;
 	wqe->ctrl.data[3] = 0;
 
 	/* Increase the consumer index. */
@@ -435,6 +362,7 @@ mlx5_wqe_write_vlan(struct ftxq *txq, volatile struct mlx5_wqe64 *wqe,
 
 	wqe->ctrl.data[0] = htonl((txq->wqe_ci << 8) | MLX5_OPCODE_SEND);
 	wqe->ctrl.data[1] = htonl(txq->qp_num_8s | 4);
+	wqe->ctrl.data[2] = 0;
 	wqe->ctrl.data[3] = 0;
 
 	/* Increase the consumer index. */
@@ -495,6 +423,7 @@ mlx5_wqe_write_inline(struct ftxq *txq, volatile struct mlx5_wqe64 *wqe,
 
 	wqe->ctrl.data[0] = htonl((txq->wqe_ci << 8) | MLX5_OPCODE_SEND);
 	wqe->ctrl.data[1] = htonl(txq->qp_num_8s | (size & 0x3f));
+	wqe->ctrl.data[2] = 0;
 	wqe->ctrl.data[3] = 0;
 
 	/* Increase the consumer index. */
@@ -564,6 +493,7 @@ mlx5_wqe_write_inline_vlan(struct ftxq *txq, volatile struct mlx5_wqe64 *wqe,
 
 	wqe->ctrl.data[0] = htonl((txq->wqe_ci << 8) | MLX5_OPCODE_SEND);
 	wqe->ctrl.data[1] = htonl(txq->qp_num_8s | (size & 0x3f));
+	wqe->ctrl.data[2] = 0;
 	wqe->ctrl.data[3] = 0;
 
 	/* Increase the consumer index. */
@@ -812,11 +742,6 @@ mlx5_tx_burst_inline(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 			else
 				mlx5_wqe_write(txq, wqe, addr, length, lkey);
 		}
-		if (unlikely(--txq->elts_comp == 0)) {
-			wqe->ctrl.data[2] = htonl(8);
-			txq->elts_comp = txq->elts_comp_cd_init;
-		} else
-			wqe->ctrl.data[2] = 0;
 #ifdef MLX5_PMD_SOFT_COUNTERS
 			sent_size += length;
 #endif
@@ -834,8 +759,13 @@ mlx5_tx_burst_inline(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	/* Increment sent packets counter. */
 	txq->stats.opackets += i;
 #endif
-	/* Ring QP doorbell. */
-	mlx5_tx_dbrec(txq);
+	if (txq->mbuf_cqe_n == 0) {
+		wqe->ctrl.data[2] = htonl(8);
+		txq->mbuf_cqe_i = (elts_head - 1) & (txq->elts_n - 1);
+		txq->mbuf_cqe_n = 1;
+		/* Ring QP doorbell. */
+		mlx5_tx_dbrec(txq);
+	}
 	txq->elts_head = elts_head;
 	return i;
 }

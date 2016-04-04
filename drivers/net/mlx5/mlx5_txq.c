@@ -90,7 +90,6 @@ static void
 txq_alloc_elts(struct txq *txq, unsigned int elts_n)
 {
 	unsigned int i;
-	unsigned int comp = txq->ftxq.elts_comp_cd_init;
 
 	for (i = 0; (i != elts_n); ++i)
 		(*txq->ftxq.elts)[i] = NULL;
@@ -101,18 +100,10 @@ txq_alloc_elts(struct txq *txq, unsigned int elts_n)
 		memset((void *)(uintptr_t)wqe, 0, sizeof(struct mlx5_wqe64));
 		wqe->eseg.inline_hdr_sz = htons(MLX5_ETH_INLINE_HEADER_SIZE);
 		wqe->ctrl.data[1] = htonl(txq->ftxq.qp_num_8s | 4);
-		/* Store the completion request in the WQE. */
-		if (--comp == 0) {
-			wqe->ctrl.data[2] = htonl(8);
-			comp = txq->ftxq.elts_comp_cd_init;
-		}
-		else
-			wqe->ctrl.data[2] = 0;
 	}
 	DEBUG("%p: allocated and configured %u WRs", (void *)txq, elts_n);
 	txq->ftxq.elts_head = 0;
 	txq->ftxq.elts_tail = 0;
-	txq->ftxq.elts_comp = txq->ftxq.elts_comp_cd_init;
 }
 
 /**
@@ -212,7 +203,6 @@ txq_ftxq_setup(struct txq *tmpl, struct txq *txq)
 	struct ibv_cq *ibcq = tmpl->cq;
 	struct mlx5_cq *cq = to_mxxx(cq, cq);
 
-	tmpl->ftxq.cqe_cnt = ibcq->cqe;
 	tmpl->ftxq.qp_num_8s = qp->ctrl_seg.qp_num << 8;
 	tmpl->ftxq.wqes =
 		(volatile struct mlx5_wqe64 (*)[])
@@ -224,7 +214,7 @@ txq_ftxq_setup(struct txq *tmpl, struct txq *txq)
 	tmpl->ftxq.bf_buf_size = qp->gen_data.bf->buf_size;
 	tmpl->ftxq.cq_db = cq->dbrec;
 	tmpl->ftxq.cqes =
-		(volatile struct mlx5_cqe64 (*)[])
+		(volatile struct mlx5_cqe64 (*)[MLX5_TX_CQ_RING_SIZE])
 		(uintptr_t)cq->active_buf->buf;
 	tmpl->ftxq.elts =
 		(struct rte_mbuf *(*)[tmpl->ftxq.elts_n])
@@ -270,12 +260,6 @@ txq_setup(struct rte_eth_dev *dev, struct txq *txq, uint16_t desc,
 
 	(void)conf; /* Thresholds configuration (ignored). */
 	tmpl.ftxq.elts_n = desc;
-	/* Request send completion every MLX5_PMD_TX_PER_COMP_REQ packets or
-	 * at least 4 times per ring. */
-	tmpl.ftxq.elts_comp_cd_init =
-		((MLX5_PMD_TX_PER_COMP_REQ < (desc / 4)) ?
-		 MLX5_PMD_TX_PER_COMP_REQ : (desc / 4));
-
 	/* MRs will be registered in mp2mr[] later. */
 	attr.rd = (struct ibv_exp_res_domain_init_attr){
 		.comp_mask = (IBV_EXP_RES_DOMAIN_THREAD_MODEL |
@@ -294,8 +278,7 @@ txq_setup(struct rte_eth_dev *dev, struct txq *txq, uint16_t desc,
 		.comp_mask = IBV_EXP_CQ_INIT_ATTR_RES_DOMAIN,
 		.res_domain = tmpl.rd,
 	};
-	tmpl.cq = ibv_exp_create_cq(priv->ctx,
-				    (desc / tmpl.ftxq.elts_comp_cd_init) - 1,
+	tmpl.cq = ibv_exp_create_cq(priv->ctx, MLX5_TX_CQ_RING_SIZE - 1,
 				    NULL, NULL, 0, &attr.cq);
 	if (tmpl.cq == NULL) {
 		ret = ENOMEM;

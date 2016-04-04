@@ -48,8 +48,8 @@
 /* Maximum number of special flows. */
 #define MLX5_MAX_SPECIAL_FLOWS 4
 
-/* Request send completion once in every 64 sends, might be less. */
-#define MLX5_PMD_TX_PER_COMP_REQ 64
+/* CQ ring size. */
+#define MLX5_TX_CQ_RING_SIZE 2
 
 /* RSS Indirection table size. */
 #define RSS_INDIRECTION_TABLE_SIZE 512
