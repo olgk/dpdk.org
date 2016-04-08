@@ -1047,7 +1047,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		volatile struct mlx5_cqe64 *cqe =
 			&(*rxq->cqes)[rxq->cq_ci & cqe_cnt];
 
-		pkt = (*rxq->elts)[idx];
+		pkt = rxq->elt->next;
 		rte_prefetch0(cqe);
 		rep = __rte_mbuf_raw_alloc(rxq->mp);
 		if (unlikely(rep == NULL)) {
@@ -1072,7 +1072,10 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		 * changes. */
 		wqe->addr = htonll((uintptr_t)rep->buf_addr +
 				   RTE_PKTMBUF_HEADROOM);
-		(*rxq->elts)[idx] = rep;
+		rep->next = pkt->next;
+		rxq->elt->next = rep;
+		rxq->elt = rep;
+		pkt->next = NULL;
 		/* Update pkt information. */
 		if (rxq->csum | rxq->vlan_strip | rxq->crc_present) {
 			if (rxq->csum) {

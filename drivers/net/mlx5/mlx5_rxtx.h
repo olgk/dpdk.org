@@ -101,17 +101,17 @@ struct rxq_zip {
 /* RX queue descriptor. */
 struct frxq {
 	uint16_t idx;
+	uint16_t elts_n;
 	uint16_t rq_ci;
 	uint16_t cq_ci;
-	uint16_t elts_n;
 	uint16_t cqe_cnt;
 	uint16_t port_id;
+	struct rte_mbuf *elt;
 	struct rxq_zip zip; /* Compressed context. */
 	volatile struct mlx5_wqe_data_seg (*wqes)[];
 	volatile struct mlx5_cqe64 (*cqes)[];
 	volatile uint32_t *rq_db;
 	volatile uint32_t *cq_db;
-	struct rte_mbuf *(*elts)[];
 	struct rte_mempool *mp;
 	unsigned int csum:1; /* Enable checksum offloading. */
 	unsigned int vlan_strip:1; /* Enable VLAN stripping. */

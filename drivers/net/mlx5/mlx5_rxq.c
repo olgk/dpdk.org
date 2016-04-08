@@ -650,12 +650,12 @@ priv_rehash_flows(struct priv *priv)
 static int
 rxq_alloc_elts(struct rxq *rxq, unsigned int elts_n, struct rte_mbuf **pool)
 {
+	struct rte_mbuf *buf;
 	unsigned int i;
 	int ret = 0;
 
 	/* For each WR (packet). */
 	for (i = 0; (i != elts_n); ++i) {
-		struct rte_mbuf *buf;
 		volatile struct mlx5_wqe_data_seg *scat = &(*rxq->frxq.wqes)[i];
 
 		if (pool != NULL) {
@@ -679,7 +679,14 @@ rxq_alloc_elts(struct rxq *rxq, unsigned int elts_n, struct rte_mbuf **pool)
 		assert(sizeof(scat->addr) >= sizeof(uintptr_t));
 		/* SGE keeps its headroom. */
 		/* Reconfigure sge to use rep instead of seg. */
-		(*rxq->frxq.elts)[i] = buf;
+		if (rxq->frxq.elt == NULL) {
+			rxq->frxq.elt = buf;
+			buf->next = buf;
+		} else {
+			buf->next = rxq->frxq.elt->next;
+			rxq->frxq.elt->next = buf;
+			rxq->frxq.elt = buf;
+		}
 		scat->addr = htonll((uintptr_t)buf->buf_addr + RTE_PKTMBUF_HEADROOM);
 		scat->byte_count = htonl(buf->buf_len - RTE_PKTMBUF_HEADROOM);
 		scat->lkey = htonl(rxq->mr->lkey);
@@ -697,10 +704,12 @@ rxq_alloc_elts(struct rxq *rxq, unsigned int elts_n, struct rte_mbuf **pool)
 error:
 	assert(pool == NULL);
 	elts_n = i;
+	buf = rxq->frxq.elt->next;
+	rxq->frxq.elt->next = NULL;
 	for (i = 0; (i != elts_n); ++i) {
-		if ((*rxq->frxq.elts)[i] != NULL)
-			rte_pktmbuf_free_seg((*rxq->frxq.elts)[i]);
-		(*rxq->frxq.elts)[i] = NULL;
+		rxq->frxq.elt = NEXT(buf);
+		rte_pktmbuf_free_seg(buf);
+		buf = rxq->frxq.elt;
 	}
 	DEBUG("%p: failed, freed everything", (void *)rxq);
 	assert(ret > 0);
@@ -717,16 +726,20 @@ static void
 rxq_free_elts(struct rxq *rxq)
 {
 	unsigned int i;
+	struct rte_mbuf *buf;
 
 	DEBUG("%p: freeing WRs", (void *)rxq);
-	if (rxq->frxq.elts == NULL)
+	if (rxq->frxq.elt == NULL)
 		return;
 
+	buf = rxq->frxq.elt->next;
+	rxq->frxq.elt->next = NULL;
 	for (i = 0; (i != rxq->frxq.elts_n); ++i) {
-		if ((*rxq->frxq.elts)[i] != NULL)
-			rte_pktmbuf_free_seg((*rxq->frxq.elts)[i]);
-		(*rxq->frxq.elts)[i] = NULL;
+		rxq->frxq.elt = NEXT(buf);
+		rte_pktmbuf_free_seg(buf);
+		buf = rxq->frxq.elt;
 	}
+	rxq->frxq.elts_n = 0;
 }
 
 /**
@@ -808,6 +821,7 @@ rxq_rehash(struct rte_eth_dev *dev, struct rxq *rxq)
 	unsigned int mbuf_n;
 	unsigned int desc_n;
 	struct rte_mbuf **pool;
+	struct rte_mbuf *buf;
 	unsigned int i, k;
 	struct ibv_exp_wq_attr mod;
 	int err;
@@ -836,8 +850,15 @@ rxq_rehash(struct rte_eth_dev *dev, struct rxq *rxq)
 	}
 	/* Snatch mbufs from original queue. */
 	k = 0;
-	for (i = 0; (i != desc_n); ++i)
-		pool[k++] = (*rxq->frxq.elts)[i];
+	buf = rxq->frxq.elt->next;
+	rxq->frxq.elt->next = NULL;
+	for (i = 0; (i != desc_n); ++i) {
+
+		rxq->frxq.elt = buf->next;
+		pool[k++] = buf;
+		buf->next = NULL;
+		buf = rxq->frxq.elt;
+	}
 	assert(k == mbuf_n);
 	rte_free(pool);
 	/* Change queue state to ready. */
@@ -872,7 +893,7 @@ error:
  *   Pointer to the receive queue.
  */
 static inline void
-rxq_frxq_setup(struct rxq *tmpl, struct rxq *rxq)
+rxq_frxq_setup(struct rxq *tmpl)
 {
 	struct ibv_cq *ibcq = tmpl->cq;
 	struct mlx5_cq *cq = to_mxxx(cq, cq);
@@ -889,9 +910,6 @@ rxq_frxq_setup(struct rxq *tmpl, struct rxq *rxq)
 	tmpl->frxq.cqes =
 		(volatile struct mlx5_cqe64 (*)[])
 		(uintptr_t)cq->active_buf->buf;
-	tmpl->frxq.elts =
-		(struct rte_mbuf *(*)[tmpl->frxq.elts_n])
-		((uintptr_t)rxq + sizeof(*rxq));
 }
 
 /**
@@ -1080,7 +1098,7 @@ rxq_setup(struct rte_eth_dev *dev, struct rxq *rxq, uint16_t desc,
 		      (void *)dev, strerror(ret));
 		goto error;
 	}
-	rxq_frxq_setup(&tmpl, rxq);
+	rxq_frxq_setup(&tmpl);
 	ret = rxq_alloc_elts(&tmpl, desc, NULL);
 	if (ret) {
 		ERROR("%p: RXQ allocation failed: %s",
@@ -1161,9 +1179,7 @@ mlx5_rx_queue_setup(struct rte_eth_dev *dev, uint16_t idx, uint16_t desc,
 		(*priv->rxqs)[idx] = NULL;
 		rxq_cleanup(rxq);
 	} else {
-		rxq = rte_calloc_socket(
-				"RXQ", 1, sizeof(*rxq) +
-				desc * sizeof(struct rte_mbuf *), 0, socket);
+		rxq = rte_calloc_socket("RXQ", 1, sizeof(*rxq), 0, socket);
 		if (rxq == NULL) {
 			ERROR("%p: unable to allocate queue index %u",
 			      (void *)dev, idx);
