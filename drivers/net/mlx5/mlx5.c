@@ -79,6 +79,9 @@
  * enabling inline send. */
 #define MLX5_TXQS_MIN_INLINE "txqs_min_inline"
 
+/* Device parameter to enable multi-packet send WQEs. */
+#define MLX5_TXQ_MPW_EN "txq_mpw_en"
+
 /**
  * Retrieve integer value from environment variable.
  *
@@ -280,6 +283,8 @@ mlx5_args_check(const char *key, const char *val, void *opaque)
 		priv->txq_inline = tmp;
 	else if (strcmp(MLX5_TXQS_MIN_INLINE, key) == 0)
 		priv->txqs_inline = tmp;
+	else if (strcmp(MLX5_TXQ_MPW_EN, key) == 0)
+		priv->mps = !!tmp;
 	else {
 		WARN("%s: unknown parameter", key);
 		return EINVAL;
@@ -305,6 +310,7 @@ mlx5_args(struct priv *priv, struct rte_devargs *devargs)
 		MLX5_RXQ_CQE_COMP_EN,
 		MLX5_TXQ_INLINE,
 		MLX5_TXQS_MIN_INLINE,
+		MLX5_TXQ_MPW_EN,
 	};
 	struct rte_kvargs *kvlist;
 	int ret = 0;
@@ -499,6 +505,7 @@ mlx5_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 		priv->port = port;
 		priv->pd = pd;
 		priv->mtu = ETHER_MTU;
+		priv->mps = mps; /* Enable MPW by default if supported. */
 		priv->cqe_comp = 1; /* Enable compression by default. */
 		err = mlx5_args(priv, pci_dev->devargs);
 		if (err) {
@@ -547,7 +554,12 @@ mlx5_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 
 		priv_get_num_vfs(priv, &num_vfs);
 		priv->sriov = (num_vfs || sriov);
-		priv->mps = mps;
+		if (priv->mps && !mps) {
+			ERROR("multi-packet send not supported on this device"
+			      " (" MLX5_TXQ_MPW_EN ")");
+			err = ENOTSUP;
+			goto port_error;
+		}
 		/* Allocate and register default RSS hash keys. */
 		priv->rss_conf = rte_calloc(__func__, hash_rxq_init_n,
 					    sizeof((*priv->rss_conf)[0]), 0);
