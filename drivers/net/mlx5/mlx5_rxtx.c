@@ -404,13 +404,11 @@ mlx5_wqe_write_inline(struct txq *txq, volatile union mlx5_wqe *wqe,
 	uint16_t room = end - raw;
 	uint16_t max = txq->max_inline;
 
+	if (room > max)
+		room = max;
 	if (vlan_tci) {
-		/* In case of VLAN we still want to copy enough to inline header
-		 *  to start the data segment from 64B aligned addr */
 		uint32_t vlan = htonl(0x81000000 | vlan_tci);
-		max += sizeof(vlan);
-		if (room > max)
-			room = max;
+
 		/*
 		 * Copy 12 bytes of source & destination MAC address.
 		 * Copy 4 bytes of VLAN.
@@ -433,8 +431,6 @@ mlx5_wqe_write_inline(struct txq *txq, volatile union mlx5_wqe *wqe,
 		max -= room;
 		pkt_inline_sz += room;
 	} else {
-		if (room > max)
-			room = max;
 		if (room > length)
 			room = length;
 		rte_memcpy((void *)raw, (void *)addr, room);
