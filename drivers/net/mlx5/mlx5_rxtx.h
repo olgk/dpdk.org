@@ -249,7 +249,7 @@ struct txq {
 	uint16_t wqe_n; /* Number of WQ elements. */
 	uint16_t bf_offset; /* Blueflame offset. */
 	uint16_t bf_buf_size; /* Blueflame size. */
-	uint16_t max_inline; /* Maximum size to inline in a WQE. */
+	uint16_t max_inline_log; /* Maximum size to inline in a WQE. */
 	uint32_t qp_num_8s; /* QP number shifted by 8. */
 	volatile struct mlx5_cqe64 (*cqes)[]; /* Completion queue. */
 	volatile union mlx5_wqe (*wqes)[]; /* Work queue. */
