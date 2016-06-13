@@ -161,8 +161,8 @@ check_cqe64(volatile struct mlx5_cqe64 *cqe,
 static void
 txq_complete(struct txq *txq)
 {
-	const unsigned int cqe_n = txq->cqe_n;
 	const unsigned int elts_n = 1 << txq->elts_n;
+	const unsigned int cqe_n = 1 << txq->cqe_n;
 	const unsigned int cqe_cnt = cqe_n - 1;
 	uint16_t elts_free = txq->elts_tail;
 	uint16_t elts_tail;
@@ -418,9 +418,9 @@ mlx5_tx_dbrec(struct txq *txq)
 static inline void
 tx_prefetch_cqe(struct txq *txq, uint16_t ci)
 {
-	volatile struct mlx5_cqe64 *cqe;
+	volatile struct mlx5_cqe *cqe;
 
-	cqe = &(*txq->cqes)[ci & (txq->cqe_n - 1)].cqe64;
+	cqe = &(*txq->cqes)[ci & ((1 << txq->cqe_n) - 1)];
 	rte_prefetch0(cqe);
 }
 
@@ -1242,8 +1242,8 @@ uint16_t
 mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 {
 	struct rxq *rxq = dpdk_rxq;
-	const unsigned int cqe_cnt = rxq->cqe_n - 1;
 	const unsigned int wqe_cnt = (1 << rxq->elts_n) - 1;
+	const unsigned int cqe_cnt = (1 << rxq->cqe_n) - 1;
 	const unsigned int sges_n = rxq->sges_n;
 	struct rte_mbuf *pkt = NULL;
 	struct rte_mbuf *seg = NULL;
