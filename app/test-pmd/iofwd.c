@@ -118,6 +118,9 @@ pkt_burst_io_forward(struct fwd_stream *fs)
 		}
 	}
 	fs->tx_packets += nb_tx;
+#ifdef RTE_TEST_PMD_RECORD_CORE_CYCLES
+	end_tsc = rte_rdtsc();
+#endif
 #ifdef RTE_TEST_PMD_RECORD_BURST_STATS
 	fs->tx_burst_stats.pkt_burst_spread[nb_tx]++;
 #endif
@@ -128,7 +131,6 @@ pkt_burst_io_forward(struct fwd_stream *fs)
 		} while (++nb_tx < nb_rx);
 	}
 #ifdef RTE_TEST_PMD_RECORD_CORE_CYCLES
-	end_tsc = rte_rdtsc();
 	core_cycles = (end_tsc - start_tsc);
 	fs->core_cycles = (uint64_t) (fs->core_cycles + core_cycles);
 #endif
