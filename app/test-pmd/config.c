@@ -1308,7 +1308,7 @@ dcb_fwd_config_setup(void)
 	(void)rte_eth_dev_get_dcb_info(fwd_ports_ids[rxp], &rxp_dcb_info);
 	(void)rte_eth_dev_get_dcb_info(fwd_ports_ids[txp], &txp_dcb_info);
 
-	for (lc_id = 0; lc_id < cur_fwd_config.nb_fwd_lcores; lc_id++) {
+	for (lc_id = 0; lc_id < cur_fwd_config.nb_fwd_streams; lc_id++) {
 		fwd_lcores[lc_id]->stream_nb = 0;
 		fwd_lcores[lc_id]->stream_idx = sm_id;
 		for (i = 0; i < ETH_MAX_VMDQ_POOL; i++) {
@@ -1392,7 +1392,7 @@ icmp_echo_config_setup(void)
 	init_fwd_streams();
 	setup_fwd_config_of_each_lcore(&cur_fwd_config);
 	rxp = 0; rxq = 0;
-	for (lc_id = 0; lc_id < cur_fwd_config.nb_fwd_lcores; lc_id++) {
+	for (lc_id = 0; lc_id < cur_fwd_config.nb_fwd_streams; lc_id++) {
 		if (verbose_level > 0)
 			printf("  core=%d: \n", lc_id);
 		for (sm_id = 0; sm_id < fwd_lcores[lc_id]->stream_nb; sm_id++) {
@@ -1453,7 +1453,7 @@ pkt_fwd_config_display(struct fwd_config *cfg)
 	if (retry_enabled)
 		printf("TX retry num: %u, delay between TX retries: %uus\n",
 			burst_tx_retry_num, burst_tx_delay_time);
-	for (lc_id = 0; lc_id < cfg->nb_fwd_lcores; lc_id++) {
+	for (lc_id = 0; lc_id < cfg->nb_fwd_streams; lc_id++) {
 		printf("Logical Core %u (socket %u) forwards packets on "
 		       "%d streams:",
 		       fwd_lcores_cpuids[lc_id],
