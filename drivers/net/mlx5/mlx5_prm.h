@@ -44,6 +44,7 @@
 #pragma GCC diagnostic error "-pedantic"
 #endif
 
+#include <rte_vect.h>
 #include "mlx5_autoconf.h"
 
 /* Get CQE owner bit. */
@@ -111,6 +112,12 @@ struct mlx5_wqe_ctrl {
 struct mlx5_wqe {
 	uint32_t ctrl[4];
 	struct mlx5_wqe_eth_seg_small eseg;
+};
+
+/* Vectorize WQE header. */
+struct mlx5_wqe_v {
+	rte_v128u32_t ctrl;
+	rte_v128u32_t eseg;
 };
 
 /* WQE. */
