@@ -435,6 +435,8 @@ first_seg:
 			wqe->eseg.cs_flags =
 				MLX5_ETH_WQE_L3_CSUM |
 				MLX5_ETH_WQE_L4_CSUM;
+		} else {
+			wqe->eseg.cs_flags = 0;
 		}
 		raw  = (uint8_t *)(uintptr_t)&wqe->eseg.inline_hdr[0];
 		/* Start the know and common part of the WQE structure. */
