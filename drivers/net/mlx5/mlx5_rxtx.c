@@ -371,7 +371,6 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	volatile struct mlx5_wqe *wqe = NULL;
 	unsigned int segs_n = 0;
 	struct rte_mbuf *buf = NULL;
-	__extension__ void *label = &&first_seg;
 	uint8_t *raw;
 
 	if (unlikely(!pkts_n))
@@ -394,8 +393,7 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		uint32_t total_length = 0;
 #endif
 
-		__extension__({ goto *label; });
-first_seg:
+		/* first_seg */
 		buf = *(pkts++);
 		segs_n = buf->nb_segs;
 		/*
@@ -407,11 +405,12 @@ first_seg:
 			break;
 		max -= segs_n;
 		--segs_n;
-		--pkts_n;
+		if (!segs_n)
+			--pkts_n;
 		wqe = &(*txq->wqes)[txq->wqe_ci &
 				    ((1 << txq->wqe_n) - 1)].hdr;
 		tx_prefetch_wqe(txq, txq->wqe_ci + 1);
-		if (pkts_n)
+		if (pkts_n > 1)
 			rte_prefetch0(*pkts);
 		addr = rte_pktmbuf_mtod(buf, uintptr_t);
 		length = DATA_LEN(buf);
@@ -423,7 +422,7 @@ first_seg:
 		(*txq->elts)[elts_head] = buf;
 		elts_head = (elts_head + 1) & (elts_n - 1);
 		/* Prefetch next buffer data. */
-		if (pkts_n) {
+		if (pkts_n > 1) {
 			volatile void *pkt_addr;
 
 			pkt_addr = rte_pktmbuf_mtod(*pkts, volatile void *);
@@ -564,7 +563,9 @@ next_seg:
 		++j;
 		--segs_n;
 		if (segs_n)
-			__extension__({ label = &&next_seg; });
+			goto next_seg;
+		else
+			--pkts_n;
 next_pkt:
 		++i;
 		wqe->ctrl[1] = htonl(txq->qp_num_8s | ds);
