@@ -17,7 +17,7 @@
   51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
 
   The full GNU General Public License is included in this distribution in
-  the file called "COPYING".
+  the file called "LICENSE.GPL".
 
   Contact Information:
   e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
@@ -76,7 +76,7 @@ static const char igb_driver_string[] =
 static const char igb_copyright[] =
 				"Copyright (c) 2007-2013 Intel Corporation.";
 
-static DEFINE_PCI_DEVICE_TABLE(igb_pci_tbl) = {
+DEFINE_PCI_DEVICE_TABLE(igb_pci_tbl) = {
 	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_I354_BACKPLANE_1GBPS) },
 	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_I354_SGMII) },
 	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_I354_BACKPLANE_2_5GBPS) },

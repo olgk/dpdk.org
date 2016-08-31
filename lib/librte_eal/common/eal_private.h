@@ -117,7 +117,7 @@ int rte_eal_log_early_init(void);
 int rte_eal_log_init(const char *id, int facility);
 
 /**
- * Init the default log stream
+ * Init the PCI infrastructure
  *
  * This function is private to EAL.
  *
@@ -125,28 +125,6 @@ int rte_eal_log_init(const char *id, int facility);
  *   0 on success, negative on error
  */
 int rte_eal_pci_init(void);
-
-#ifdef RTE_LIBRTE_IVSHMEM
-/**
- * Init the memory from IVSHMEM devices
- *
- * This function is private to EAL.
- *
- * @return
- *  0 on success, negative on error
- */
-int rte_eal_ivshmem_init(void);
-
-/**
- * Init objects in IVSHMEM devices
- *
- * This function is private to EAL.
- *
- * @return
- *  0 on success, negative on error
- */
-int rte_eal_ivshmem_obj_init(void);
-#endif
 
 struct rte_pci_driver;
 struct rte_pci_device;

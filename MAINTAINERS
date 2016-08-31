@@ -28,7 +28,7 @@ F: scripts/check-maintainers.sh
 F: scripts/check-git-log.sh
 F: scripts/check-includes.sh
 F: scripts/checkpatches.sh
-F: scripts/load-devel-config.sh
+F: scripts/load-devel-config
 F: scripts/test-build.sh
 
 Stable Branches
@@ -546,14 +546,6 @@ F: app/cmdline_test/
 F: app/test/test_cmdline*
 F: examples/cmdline/
 F: doc/guides/sample_app_ug/cmd_line.rst
-
-Qemu IVSHMEM
-M: Anatoly Burakov <anatoly.burakov@intel.com>
-F: lib/librte_ivshmem/
-F: lib/librte_eal/linuxapp/eal/eal_ivshmem.c
-F: doc/guides/prog_guide/ivshmem_lib.rst
-F: app/test/test_ivshmem.c
-F: examples/l2fwd-ivshmem/
 
 Key/Value parsing
 M: Olivier Matz <olivier.matz@6wind.com>
