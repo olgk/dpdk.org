@@ -150,6 +150,7 @@ usage(char* progname)
 	       "By default drop-queue=127.\n");
 	printf("  --crc-strip: enable CRC stripping by hardware.\n");
 	printf("  --enable-rx-cksum: enable rx hardware checksum offload.\n");
+	printf("  --enable-timestamps: enable rx hardware timestamp.\n");
 	printf("  --disable-hw-vlan: disable hardware vlan.\n");
 	printf("  --disable-hw-vlan-filter: disable hardware vlan filter.\n");
 	printf("  --disable-hw-vlan-strip: disable hardware vlan strip.\n");
@@ -525,6 +526,7 @@ launch_args_parse(int argc, char** argv)
 		{ "pkt-filter-drop-queue",      1, 0, 0 },
 		{ "crc-strip",                  0, 0, 0 },
 		{ "enable-rx-cksum",            0, 0, 0 },
+		{ "enable-timestamps",          0, 0, 0 },
 		{ "enable-scatter",             0, 0, 0 },
 		{ "disable-hw-vlan",            0, 0, 0 },
 		{ "disable-hw-vlan-filter",     0, 0, 0 },
@@ -768,6 +770,8 @@ launch_args_parse(int argc, char** argv)
 				rx_mode.enable_scatter = 1;
 			if (!strcmp(lgopts[opt_idx].name, "enable-rx-cksum"))
 				rx_mode.hw_ip_checksum = 1;
+			if (!strcmp(lgopts[opt_idx].name, "enable-timestamps"))
+				timestamps_enabled = 1;
 
 			if (!strcmp(lgopts[opt_idx].name, "disable-hw-vlan")) {
 				rx_mode.hw_vlan_filter = 0;

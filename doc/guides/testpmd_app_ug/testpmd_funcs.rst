@@ -1312,6 +1312,13 @@ Set the DCB mode for an individual port::
 
 The traffic class should be 4 or 8.
 
+port config - Timesync/timestamping
+~~~~~~~~~~~~~~~~~~~
+
+Enable/disable time synhronzation/packet timestamping for specific port or all ports::
+
+   testpmd> port config (port_id|all) timestamps (on|off)
+
 port config - Burst
 ~~~~~~~~~~~~~~~~~~~
 

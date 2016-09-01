@@ -561,6 +561,9 @@ static void cmd_help_long_parsed(void *parsed_result,
 			"    Set crc-strip/scatter/rx-checksum/hardware-vlan/drop_en"
 			" for ports.\n\n"
 
+			"port config (port_id|all) timestamps (on|off)\n"
+			"    Enable/disable packet timestamps.\n\n"
+
 			"port config all rss (all|ip|tcp|udp|sctp|ether|port|vxlan|geneve|nvgre|none)\n"
 			"    Set the RSS mode.\n\n"
 
@@ -10188,6 +10191,123 @@ cmdline_parse_inst_t cmd_config_l2_tunnel_en_dis_specific = {
 	},
 };
 
+/* Configure port timestamping */
+struct cmd_config_timestamps_result {
+	cmdline_fixed_string_t port;
+	cmdline_fixed_string_t config;
+	cmdline_fixed_string_t all;
+	uint8_t id;
+	cmdline_fixed_string_t timestamps;
+	cmdline_fixed_string_t mode;
+};
+
+cmdline_parse_token_string_t cmd_config_timestamps_port =
+	TOKEN_STRING_INITIALIZER
+		(struct cmd_config_timestamps_result,
+		 port, "port");
+cmdline_parse_token_string_t cmd_config_timestamps_config =
+	TOKEN_STRING_INITIALIZER
+		(struct cmd_config_timestamps_result,
+		 config, "config");
+cmdline_parse_token_string_t cmd_config_timestamps_all_str =
+	TOKEN_STRING_INITIALIZER
+		(struct cmd_config_timestamps_result,
+		 all, "all");
+cmdline_parse_token_num_t cmd_config_timestamps_id =
+	TOKEN_NUM_INITIALIZER
+		(struct cmd_config_timestamps_result,
+		 id, UINT8);
+cmdline_parse_token_string_t cmd_config_timestamps_ts_str =
+	TOKEN_STRING_INITIALIZER
+		(struct cmd_config_timestamps_result,
+		timestamps, "timestamps");
+cmdline_parse_token_string_t cmd_config_timestamps_path =
+	TOKEN_STRING_INITIALIZER
+		(struct cmd_config_timestamps_result,
+		mode, "on#off");
+
+/* enable/disable timestamps (on/off) for a port */
+static void
+cmd_config_timestamps_all_parsed(
+	void *parsed_result,
+	__attribute__((unused)) struct cmdline *cl,
+	__attribute__((unused)) void *data)
+{
+	struct cmd_config_timestamps_result *res = parsed_result;
+	portid_t pid;
+	uint8_t mode = 0;
+
+	if (!strcmp("on", res->mode))
+		mode = 1;
+	else if (!strcmp("off", res->mode))
+		mode = 0;
+	else {
+		printf("Unknown timestamps mode parameter\n");
+		return;
+	}
+	FOREACH_PORT(pid, ports) {
+		if (mode)
+			rte_eth_timesync_enable(pid);
+		else
+			rte_eth_timesync_disable(pid);
+	}
+}
+
+cmdline_parse_inst_t cmd_config_timestamps_all = {
+	.f = cmd_config_timestamps_all_parsed,
+	.data = NULL,
+	.help_str = "port config all timestamps on|off",
+	.tokens = {
+		(void *)&cmd_config_timestamps_port,
+		(void *)&cmd_config_timestamps_config,
+		(void *)&cmd_config_timestamps_all_str,
+		(void *)&cmd_config_timestamps_ts_str,
+		(void *)&cmd_config_timestamps_path,
+		NULL,
+	},
+};
+
+/* enable/disable timestamps (rx/tx/both) for a port */
+static void
+cmd_config_timestamps_specific_parsed(
+	void *parsed_result,
+	__attribute__((unused)) struct cmdline *cl,
+	__attribute__((unused)) void *data)
+{
+	struct cmd_config_timestamps_result *res =
+		parsed_result;
+	uint8_t mode = 0;
+
+	if (port_id_is_invalid(res->id, ENABLED_WARN))
+		return;
+	if (!strcmp("on", res->mode))
+		mode = 1;
+	else if (!strcmp("off", res->mode))
+		mode = 0;
+	else {
+		printf("Unknown timestamps mode parameter\n");
+		return;
+	}
+	if (mode)
+		rte_eth_timesync_enable(res->id);
+	else
+		rte_eth_timesync_disable(res->id);
+}
+
+cmdline_parse_inst_t cmd_config_timestamps_specific = {
+	.f = cmd_config_timestamps_specific_parsed,
+	.data = NULL,
+	.help_str = "port config <port> timestamps on|off",
+	.tokens = {
+		(void *)&cmd_config_timestamps_port,
+		(void *)&cmd_config_timestamps_config,
+		(void *)&cmd_config_timestamps_id,
+		(void *)&cmd_config_timestamps_ts_str,
+		(void *)&cmd_config_timestamps_path,
+		NULL,
+	},
+};
+
 /* E-tag configuration */
 
 /* Common result structure for all E-tag configuration */
@@ -10739,6 +10859,8 @@ cmdline_parse_ctx_t main_ctx[] = {
 	(cmdline_parse_inst_t *)&cmd_config_e_tag_forwarding_en_dis,
 	(cmdline_parse_inst_t *)&cmd_config_e_tag_filter_add,
 	(cmdline_parse_inst_t *)&cmd_config_e_tag_filter_del,
+	(cmdline_parse_inst_t *)&cmd_config_timestamps_all,
+	(cmdline_parse_inst_t *)&cmd_config_timestamps_specific,
 	NULL,
 };
 

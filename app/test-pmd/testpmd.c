@@ -189,6 +189,8 @@ uint8_t dcb_config = 0;
 /* Whether the dcb is in testing status */
 uint8_t dcb_test = 0;
 
+/**< Enabling runtime packet timestamps by CL: --enable-timestamps */
+uint8_t timestamps_enabled = 0;
 /*
  * Configurable number of RX/TX queues.
  */
@@ -1850,6 +1852,9 @@ init_port_config(void)
 		rxtx_port_config(port);
 
 		rte_eth_macaddr_get(pid, &port->eth_addr);
+
+		if (timestamps_enabled)
+			rte_eth_timesync_enable(pid);
 
 		map_port_queue_stats_mapping_registers(pid, port);
 #ifdef RTE_NIC_BYPASS

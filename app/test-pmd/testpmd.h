@@ -353,6 +353,7 @@ extern int32_t txq_flags;
 
 extern uint8_t dcb_config;
 extern uint8_t dcb_test;
+extern uint8_t timestamps_enabled; /**< Timestamps by --enable-timestamps */
 extern enum dcb_queue_mapping_mode dcb_q_mapping;
 
 extern uint16_t mbuf_data_size; /**< Mbuf data space size. */
