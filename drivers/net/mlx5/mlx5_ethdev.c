@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright 2015 6WIND S.A.
- *   Copyright 2015 Mellanox.
+ *   Copyright 2015-2016 6WIND S.A.
+ *   Copyright 2015-2016 Mellanox.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -59,6 +59,7 @@
 #include <rte_interrupts.h>
 #include <rte_alarm.h>
 #include <rte_malloc.h>
+#include <rte_time.h>
 #ifdef PEDANTIC
 #pragma GCC diagnostic error "-pedantic"
 #endif
@@ -1411,4 +1412,221 @@ void
 priv_select_rx_function(struct priv *priv)
 {
 	priv->dev->rx_pkt_burst = mlx5_rx_burst;
+}
+
+/**
+ * Synchronize with system time. We get the best (min) from 10 attempts
+ * to minimize shift from sys time and HCA clocks.
+ *
+ * @param ibv_context
+ *   Pointer to IB verbs context.
+ * @param st
+ *   Pointer to store system time.
+ * @param st_ns
+ *   Pointer to store system time represented in ns.
+ * @param hw_clock
+ *   Pointer to store HCA HW clock.
+ *
+ * @return
+ *   0 on success, -1 value on failure.
+ */
+static int
+mlx5_sync_clocks(struct ibv_context *ibv_ctx, struct timespec *st,
+		 volatile uint64_t *st_ns, volatile uint64_t *hw_clock)
+{
+	struct timespec st1, st2, diff, st_min = TIMESPEC_INITIALIZER;
+	struct ibv_exp_values query_val = {0};
+	int64_t interval, best_interval = 0;
+	uint64_t hw_clock_min = 0;
+
+	memset(&query_val, 0, sizeof(query_val));
+	query_val.comp_mask = IBV_EXP_VALUES_HW_CLOCK;
+	for (int i = 0 ; i < 10 ; ++i) {
+		clock_gettime(CLOCK_REALTIME, &st1);
+		if (ibv_exp_query_values(ibv_ctx, IBV_EXP_VALUES_HW_CLOCK,
+					 &query_val) || !query_val.hwclock)
+			return -1;
+		clock_gettime(CLOCK_REALTIME, &st2);
+		interval = (st2.tv_sec - st1.tv_sec) * NSEC_PER_SEC +
+			   (st2.tv_nsec - st1.tv_nsec);
+
+		if (!best_interval || interval < best_interval) {
+			best_interval = interval;
+			hw_clock_min = query_val.hwclock;
+
+			interval /= 2;
+			diff.tv_sec = interval / NSEC_PER_SEC;
+			diff.tv_nsec = interval - (diff.tv_sec * NSEC_PER_SEC);
+			rte_timespec_add(&st1, &diff, &st_min);
+		}
+	}
+	*st = st_min;
+	*st_ns = st->tv_sec * NSEC_PER_SEC + st->tv_nsec;
+	*hw_clock = hw_clock_min;
+	return 0;
+}
+
+/**
+ * Periodic function to run by rte_eal_alarm and to synchronize with system
+ * time and calculate HCA HW сlock deviation. The deviation will be included
+ * into timestamp calculation in RX/TX callbacks.
+ *
+ * @param arg
+ *   Void pointer to struct priv.
+ *
+ */
+static void
+mlx5_fix_hw_clock_deviation_handler(void *arg)
+{
+	struct priv *pv = arg;
+	struct timespec current_time, diff_systime;
+	uint64_t diff_hw_clock, hw_clock, estimated_hw_clock;
+	uint64_t systime_ns, diff_systime_ns;
+	int64_t clock_deviation_hw;
+	volatile struct mlx5_timestamp_sync *ts = &pv->timesync.sync_timestamp;
+
+	if (!ts->port_clock_frequency)
+		return;
+	if (mlx5_sync_clocks(pv->ctx, &current_time, &systime_ns, &hw_clock))
+		return;
+	/* time between current and previous time sync */
+	rte_timespec_sub(&current_time, &pv->timesync.sync_systime,
+			 &diff_systime);
+	/* also clocks */
+	diff_hw_clock = hw_clock - ts->sync_hw_clock;
+	diff_systime_ns = rte_timespec_to_ns(&diff_systime);
+	estimated_hw_clock = (diff_systime.tv_sec * ts->port_clock_frequency) +
+			     (diff_systime.tv_nsec * ts->port_clock_frequency /
+			     NSEC_PER_SEC);
+	clock_deviation_hw = estimated_hw_clock - diff_hw_clock;
+	priv_lock(pv);
+	if (abs(clock_deviation_hw) >= MLX5_CLOCK_DEVIATION_THRESHOLD) {
+		ts->port_clock_frequency = (diff_hw_clock * NSEC_PER_SEC) /
+					   diff_systime_ns;
+		ts->mskd_duration = (NSEC_PER_SEC << 30) /
+				    ts->port_clock_frequency;
+	}
+	ts->sync_hw_clock = hw_clock;
+	ts->sync_time_ns = systime_ns;
+	pv->timesync.sync_systime = current_time;
+	DEBUG("%ld.%09ld since last fix, time_ns: %lu estimate_hw_clock = %ld,"
+	      "diff_hw_clock = %ld, deviation = %ld, freq = %ld durat: %lu",
+	      diff_systime.tv_sec, diff_systime.tv_nsec, systime_ns,
+	      estimated_hw_clock, diff_hw_clock, clock_deviation_hw,
+	      ts->port_clock_frequency, ts->mskd_duration);
+	/* update all queues */
+	for (uint32_t i = 0; i != pv->rxqs_n; i++) {
+		struct rxq *rxq = (*pv->rxqs)[i];
+
+		if (rxq == NULL)
+			continue;
+		rxq->timestamps_enabled = pv->timesync_en;
+		rxq->timesync = *ts;
+	}
+	priv_unlock(pv);
+	rte_eal_alarm_set(MLX5_ALARM_CLOCK_DEVIATION_US,
+			  mlx5_fix_hw_clock_deviation_handler,
+			  (void *)pv);
+}
+
+/**
+ * Return HCA port clock frequency in Hz.
+ *
+ * @param priv
+ *   Pointer to private structure.
+ */
+static uint64_t
+mlx5_get_port_clock_frequency(struct priv *pv)
+{
+	struct ibv_exp_device_attr exp_device_attr;
+	exp_device_attr.comp_mask = IBV_EXP_DEVICE_ATTR_WITH_HCA_CORE_CLOCK;
+	if (ibv_exp_query_device(pv->ctx, &exp_device_attr)) {
+		ERROR("ibv_exp_query_device() failed");
+		return 0;
+	}
+	return exp_device_attr.hca_core_clock * 1000; /* orig in KHz */
+}
+
+/**
+ *  DPDK callback to enable timestamping. rte_mbuf.timestamp will hold
+ *  value of the packet in ns.
+ *
+ * @param dev
+ *   Pointer to Ethernet device structure.
+ *
+ * @return
+ *   0 on success, errno value on failure.
+ */
+int
+mlx5_timesync_enable(struct rte_eth_dev *dev)
+{
+	struct priv *pv = dev->data->dev_private;
+	struct mlx5_timesync *tso = &pv->timesync;
+	volatile struct mlx5_timestamp_sync *sts = &tso->sync_timestamp;
+
+	priv_lock(pv);
+	sts->port_clock_frequency = mlx5_get_port_clock_frequency(pv);
+	if (!sts->port_clock_frequency) {
+		pv->timesync_en = 0;
+		INFO("Timesync disabled: %d as port clock frequency is 0",
+		     pv->timesync_en);
+		priv_unlock(pv);
+		return -ENOTSUP;
+	}
+	INFO("port %u Clock frequency: %lu Hz", pv->port,
+	     sts->port_clock_frequency);
+	if (mlx5_sync_clocks(pv->ctx, &tso->sync_systime, &sts->sync_time_ns,
+			     &sts->sync_hw_clock)) {
+		pv->timesync_en = 0;
+		INFO("Timesync disabled: %d", pv->timesync_en);
+		priv_unlock(pv);
+		return -ENOTSUP;
+	}
+	sts->mskd_duration = (NSEC_PER_SEC << 30) / sts->port_clock_frequency;
+	pv->timesync_en = 1;
+	DEBUG("%p: Timesync enabled, masked duration: %lu", (void *)dev,
+	      sts->mskd_duration);
+	rte_eal_alarm_set(1000,
+			  mlx5_fix_hw_clock_deviation_handler,
+			  pv);
+	DEBUG("%p: sync_systime: %lu.%lu, time_ns: %lu sync_hw_clock: %lu",
+	      (void *)dev, tso->sync_systime.tv_sec,
+	      tso->sync_systime.tv_nsec, sts->sync_time_ns, sts->sync_hw_clock);
+	/* update all queues */
+	for (uint32_t i = 0; i != pv->rxqs_n; i++) {
+		struct rxq *rxq = (*pv->rxqs)[i];
+
+		if (rxq == NULL)
+			continue;
+		rxq->timestamps_enabled = pv->timesync_en;
+		rxq->timesync = *sts;
+	}
+	priv_unlock(pv);
+	return 0;
+}
+
+/**
+ *  DPDK callback to disable timestamping. Value of rte_mbuf.timestamp is
+ *  undefined.
+ *
+ * @param dev
+ *   Pointer to Ethernet device structure.
+ *
+ * @return
+ *   0 on success, errno value on failure.
+ */
+int
+mlx5_timesync_disable(struct rte_eth_dev *dev)
+{
+	struct priv *pv = dev->data->dev_private;
+
+	pv->timesync_en = 0;
+	rte_eal_alarm_cancel(mlx5_fix_hw_clock_deviation_handler, pv);
+	for (uint32_t i = 0; i != pv->rxqs_n; i++) {
+		struct rxq *rxq = (*pv->rxqs)[i];
+		if (rxq == NULL)
+			continue;
+		rxq->timestamps_enabled = pv->timesync_en;
+	}
+	return 0;
 }

@@ -1,8 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright 2015 6WIND S.A.
- *   Copyright 2015 Mellanox.
+ *   Copyright 2016 Mellanox.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -31,56 +30,24 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RTE_PMD_MLX5_DEFS_H_
-#define RTE_PMD_MLX5_DEFS_H_
+#ifndef RTE_PMD_MLX5_TIME_H_
+#define RTE_PMD_MLX5_TIME_H_
 
-#include "mlx5_autoconf.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <limits.h>
 
-/* Reported driver name. */
-#define MLX5_DRIVER_NAME "librte_pmd_mlx5"
 
-/* Maximum number of simultaneous MAC addresses. */
-#define MLX5_MAX_MAC_ADDRESSES 128
+struct mlx5_timestamp_sync {
+	uint64_t sync_hw_clock; /* the last HW clocks */
+	uint64_t sync_time_ns; /* the last system time in ns */
+	uint64_t mskd_duration; /* adjusted masked duration */
+	uint64_t port_clock_frequency; /* in Hz */
+};
 
-/* Maximum number of simultaneous VLAN filters. */
-#define MLX5_MAX_VLAN_IDS 128
+struct mlx5_timesync {
+	volatile struct mlx5_timestamp_sync sync_timestamp;
+	struct timespec sync_systime; /* the last system time */
+};
 
-/* Maximum number of special flows. */
-#define MLX5_MAX_SPECIAL_FLOWS 4
-
-/*
- * Request TX completion every time descriptors reach this threshold since
- * the previous request. Must be a power of two for performance reasons.
- */
-#define MLX5_TX_COMP_THRESH 32
-
-/* RSS Indirection table size. */
-#define RSS_INDIRECTION_TABLE_SIZE 256
-
-/*
- * Maximum number of cached Memory Pools (MPs) per TX queue. Each RTE MP
- * from which buffers are to be transmitted will have to be mapped by this
- * driver to their own Memory Region (MR). This is a slow operation.
- *
- * This value is always 1 for RX queues.
- */
-#ifndef MLX5_PMD_TX_MP_CACHE
-#define MLX5_PMD_TX_MP_CACHE 8
-#endif
-
-/*
- * If defined, only use software counters. The PMD will never ask the hardware
- * for these, and many of them won't be available.
- */
-#ifndef MLX5_PMD_SOFT_COUNTERS
-#define MLX5_PMD_SOFT_COUNTERS 1
-#endif
-
-/* Alarm timeout. */
-#define MLX5_ALARM_TIMEOUT_US 100000
-
-/* Clock deviation fix alarm timeout*/
-#define MLX5_ALARM_CLOCK_DEVIATION_US 5000000
-#define MLX5_CLOCK_DEVIATION_THRESHOLD 10
-
-#endif /* RTE_PMD_MLX5_DEFS_H_ */
+#endif /* RTE_PMD_MLX5_TIME_H_ */

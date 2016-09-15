@@ -116,6 +116,7 @@ mlx5_dev_stop(struct rte_eth_dev *dev)
 		return;
 	}
 	DEBUG("%p: cleaning up and destroying hash RX queues", (void *)dev);
+	mlx5_timesync_disable(dev);
 	priv_special_flow_disable_all(priv);
 	priv_mac_addrs_disable(priv);
 	priv_destroy_hash_rxqs(priv);

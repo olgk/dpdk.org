@@ -37,6 +37,8 @@
 #include <stdint.h>
 #include <time.h>
 
+#define TIMESPEC_INITIALIZER    {0, 0}
+
 #define NSEC_PER_SEC             1000000000L
 
 /**
@@ -125,6 +127,49 @@ rte_ns_to_timespec(uint64_t nsec)
 	ts.tv_nsec = nsec % NSEC_PER_SEC;
 
 	return ts;
+}
+
+/**
+ * Addition of two timespec times to result.
+ *
+ * @param a
+ *    Pointer to the first time
+ * @param b
+ *    Pointer to the second time
+ * @param res
+ *    Pointer to result
+ *
+ */
+static inline void rte_timespec_add(struct timespec *a, struct timespec *b,
+	struct timespec *res)
+{
+	res->tv_sec = a->tv_sec + b->tv_sec;
+	res->tv_nsec = a->tv_nsec + b->tv_nsec;
+	if (res->tv_nsec >= NSEC_PER_SEC) {
+		++res->tv_sec;
+		res->tv_nsec -= NSEC_PER_SEC;
+	}
+}
+
+/**
+ * Substruction of the first timespec by second to result.
+ *
+ * @param a
+ *    Pointer to the first time
+ * @param b
+ *    Pointer to the second time
+ * @param res
+ *    Pointer to result
+ */
+static inline void rte_timespec_sub(struct timespec *a, struct timespec *b,
+	struct timespec *res)
+{
+	res->tv_sec = a->tv_sec - b->tv_sec;
+	res->tv_nsec = a->tv_nsec - b->tv_nsec;
+	if (res->tv_nsec < 0) {
+		--res->tv_sec;
+		res->tv_nsec += NSEC_PER_SEC;
+	}
 }
 
 #endif /* _RTE_TIME_H_ */

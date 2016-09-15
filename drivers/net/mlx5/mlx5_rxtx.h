@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright 2015 6WIND S.A.
- *   Copyright 2015 Mellanox.
+ *   Copyright 2015-2016 6WIND S.A.
+ *   Copyright 2015-2016 Mellanox.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -60,6 +60,7 @@
 #endif
 
 #include "mlx5_utils.h"
+#include "mlx5_time.h"
 #include "mlx5.h"
 #include "mlx5_autoconf.h"
 #include "mlx5_defs.h"
@@ -109,6 +110,7 @@ struct rxq {
 	unsigned int csum_l2tun:1; /* Same for L2 tunnels. */
 	unsigned int vlan_strip:1; /* Enable VLAN stripping. */
 	unsigned int crc_present:1; /* CRC must be subtracted. */
+	unsigned int timestamps_enabled:1; /* timestamping enabled */
 	unsigned int sges_n:2; /* Log 2 of SGEs (max buffers per packet). */
 	unsigned int cqe_n:4; /* Log 2 of CQ elements. */
 	unsigned int elts_n:4; /* Log 2 of Mbufs. */
@@ -125,6 +127,7 @@ struct rxq {
 	struct rte_mbuf *(*elts)[];
 	struct rte_mempool *mp;
 	struct mlx5_rxq_stats stats;
+	volatile struct mlx5_timestamp_sync timesync; /* per queue copy */
 } __rte_cache_aligned;
 
 /* RX queue control descriptor. */

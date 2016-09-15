@@ -1,8 +1,8 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright 2015 6WIND S.A.
- *   Copyright 2015 Mellanox.
+ *   Copyright 2015-2016 6WIND S.A.
+ *   Copyright 2015-2016 Mellanox.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -59,6 +59,7 @@
 #include <rte_branch_prediction.h>
 #include <rte_ether.h>
 #include <rte_vect.h>
+#include <rte_time.h>
 #ifdef PEDANTIC
 #pragma GCC diagnostic error "-pedantic"
 #endif
@@ -1385,6 +1386,20 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 					len -= ETHER_CRC_LEN;
 			}
 			PKT_LEN(pkt) = len;
+			/* Calculate synchronized timestamp in ns */
+			if (unlikely(rxq->timestamps_enabled)) {
+				volatile struct mlx5_timestamp_sync *tso =
+					&rxq->timesync;
+				uint64_t clock_diff;
+				rte_prefetch0(tso);
+				clock_diff = ntohll(cqe->timestamp) -
+					tso->sync_hw_clock;
+				clock_diff = (clock_diff * tso->mskd_duration)
+					>> 30;
+				pkt->timestamp = tso->sync_time_ns +
+					clock_diff;
+				pkt->ol_flags |= PKT_RX_IEEE1588_TMST;
+			}
 		}
 		DATA_LEN(rep) = DATA_LEN(seg);
 		PKT_LEN(rep) = PKT_LEN(seg);
